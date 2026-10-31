@@ -1,0 +1,18 @@
+{
+  "mae": 55.16,
+  "rmse": 75.89,
+  "train_samples": 3200,
+  "test_samples": 800,
+  "features": [
+    "occupancy",
+    "capacity",
+    "inflow_rate",
+    "outflow_rate",
+    "net_flow",
+    "occupancy_ratio",
+    "lag_1",
+    "lag_2",
+    "lag_3",
+    "horizon_minutes"
+  ]
+}
