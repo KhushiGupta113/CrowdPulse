@@ -172,11 +172,14 @@ export default function DashboardPage() {
           const resolvedAlert = prev.alerts.find((a) => a.id === alertId);
           const updatedZones = prev.zones.map((z) => {
             if (resolvedAlert && z.id === resolvedAlert.zoneId) {
-              const hasRemainingCritical = remainingActive.some((a) => a.zoneId === z.id && a.severity === 'critical');
-              const hasRemainingWarning = remainingActive.some((a) => a.zoneId === z.id && a.severity === 'warning');
+              const relievedOccupancy = Math.round(z.capacity * 0.72);
+              const radius = z.radius || 5.0;
+              const relievedDensity = parseFloat((relievedOccupancy / (radius * radius * 3.14)).toFixed(1));
               return {
                 ...z,
-                status: hasRemainingCritical ? ('critical' as const) : hasRemainingWarning ? ('warning' as const) : ('safe' as const),
+                occupancy: relievedOccupancy,
+                density: relievedDensity,
+                status: 'safe' as const,
               };
             }
             return z;
@@ -194,7 +197,14 @@ export default function DashboardPage() {
         setSelectedZone((prev) => {
           const alertObj = scenarioData.alerts.find((a) => a.id === alertId);
           if (prev && alertObj && prev.id === alertObj.zoneId) {
-            return { ...prev, status: 'safe' };
+            const relievedOccupancy = Math.round(prev.capacity * 0.72);
+            const radius = prev.radius || 5.0;
+            return {
+              ...prev,
+              occupancy: relievedOccupancy,
+              density: parseFloat((relievedOccupancy / (radius * radius * 3.14)).toFixed(1)),
+              status: 'safe',
+            };
           }
           return prev;
         });
@@ -806,30 +816,51 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={alert.id}
-                      className={`p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs transition-colors ${
-                        isResolved ? 'opacity-60 bg-slate-950/40' : 'hover:bg-slate-900/60'
+                      className={`p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs transition-all duration-200 border-l-4 ${
+                        isResolved
+                          ? 'bg-emerald-950/20 border-l-emerald-500 border-t border-b border-r border-slate-800'
+                          : isInvestigating
+                          ? 'bg-amber-950/20 border-l-amber-500 border-t border-b border-r border-slate-800 hover:bg-slate-900/60'
+                          : 'border-l-rose-500 border-t border-b border-r border-slate-800 hover:bg-slate-900/60'
                       }`}
                     >
                       <div className="space-y-1 max-w-xl">
                         <div className="flex items-center gap-2 font-mono text-[10px]">
-                          <span
-                            className={`px-2 py-0.5 rounded-full font-bold uppercase border ${
-                              alert.severity === 'critical'
-                                ? 'bg-rose-950/80 text-rose-300 border-rose-800'
-                                : alert.severity === 'warning'
-                                ? 'bg-amber-950/80 text-amber-300 border-amber-800'
-                                : 'bg-blue-950/80 text-cyan-300 border-blue-800'
-                            }`}
-                          >
-                            {alert.severity}
-                          </span>
-                          <span className="text-slate-400">{alert.id}</span>
+                          {/* Dynamic Status / Severity Pill: Turns Emerald Green when Resolved */}
+                          {isResolved ? (
+                            <span className="px-2.5 py-0.5 rounded-full font-bold uppercase border bg-emerald-950 text-emerald-300 border-emerald-600 flex items-center gap-1 shadow-xs">
+                              <span className="material-symbols-outlined text-[13px] text-emerald-400">check_circle</span>
+                              RESOLVED
+                            </span>
+                          ) : isInvestigating ? (
+                            <span className="px-2.5 py-0.5 rounded-full font-bold uppercase border bg-amber-950 text-amber-300 border-amber-600 flex items-center gap-1 shadow-xs">
+                              <span className="material-symbols-outlined text-[13px] text-amber-400">pending</span>
+                              INVESTIGATING
+                            </span>
+                          ) : (
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full font-bold uppercase border flex items-center gap-1 shadow-xs ${
+                                alert.severity === 'critical'
+                                  ? 'bg-rose-950 text-rose-300 border-rose-700 animate-pulse'
+                                  : 'bg-amber-950 text-amber-300 border-amber-700'
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-[13px]">
+                                {alert.severity === 'critical' ? 'warning' : 'info'}
+                              </span>
+                              {alert.severity}
+                            </span>
+                          )}
+
+                          <span className="text-slate-400 font-bold">{alert.id}</span>
                           <span className="text-slate-600">•</span>
                           <span className="text-slate-400">{alert.timestamp}</span>
                           <span className="text-slate-600">•</span>
                           <span className="text-cyan-400">{alert.zoneName}</span>
                         </div>
-                        <div className="font-semibold text-slate-100">{alert.title}</div>
+                        <div className={`font-semibold ${isResolved ? 'text-slate-300 line-through decoration-emerald-500/50' : 'text-slate-100'}`}>
+                          {alert.title}
+                        </div>
                         <div className="text-[11px] text-slate-400">
                           Trigger: <span className="font-mono text-slate-200">{alert.triggerValue}</span>
                         </div>
@@ -850,24 +881,35 @@ export default function DashboardPage() {
                         {!isResolved && !isInvestigating && (
                           <button
                             onClick={() => handleAcknowledgeAlert(alert.id)}
-                            className="px-2.5 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800 transition-colors cursor-pointer"
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800 transition-colors cursor-pointer flex items-center gap-1"
+                            title="Acknowledge this alert"
                           >
+                            <span className="material-symbols-outlined text-[14px]">visibility</span>
                             Acknowledge
                           </button>
+                        )}
+
+                        {!isResolved && isInvestigating && (
+                          <span className="px-2.5 py-1.5 rounded-lg bg-amber-950/50 text-amber-300 border border-amber-800/60 text-xs flex items-center gap-1 font-semibold">
+                            <span className="material-symbols-outlined text-[14px] text-amber-400">pending</span>
+                            Acknowledged
+                          </span>
                         )}
 
                         {!isResolved && (
                           <button
                             onClick={() => handleResolveAlert(alert.id)}
-                            className="px-2.5 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 transition-colors cursor-pointer"
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-md transition-all cursor-pointer flex items-center gap-1 active:scale-95"
+                            title="Mark incident as resolved"
                           >
+                            <span className="material-symbols-outlined text-[15px]">check_circle</span>
                             Resolve
                           </button>
                         )}
 
                         {isResolved && (
-                          <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                          <span className="px-3 py-1.5 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-600 font-semibold flex items-center gap-1.5 text-xs shadow-sm">
+                            <span className="material-symbols-outlined text-[16px] text-emerald-400">task_alt</span>
                             Resolved
                           </span>
                         )}

@@ -294,6 +294,33 @@ export async function updateAlertStatus(
       if (res) {
         const { _id, areaId, ...rest } = res as any;
         updatedRecord = rest as CrowdAlert;
+
+        // If an alert is marked as resolved, relieve the zone's occupancy back to safe capacity (<75%)
+        if (newStatus === 'resolved' && updatedRecord.zoneId) {
+          const targetZone = await db.collection('monitoringZones').findOne({ id: updatedRecord.zoneId });
+          if (targetZone) {
+            const relievedOccupancy = Math.round(targetZone.capacity * 0.72);
+            const radius = targetZone.radius || 5.0;
+            const relievedDensity = parseFloat((relievedOccupancy / (radius * radius * 3.14)).toFixed(1));
+            const updatedTrend = Array.isArray(targetZone.trend) ? [...targetZone.trend] : [relievedOccupancy];
+            updatedTrend.shift();
+            updatedTrend.push(relievedOccupancy);
+
+            await db.collection('monitoringZones').updateOne(
+              { id: updatedRecord.zoneId },
+              {
+                $set: {
+                  occupancy: relievedOccupancy,
+                  density: relievedDensity,
+                  status: 'safe',
+                  trend: updatedTrend,
+                  lastUpdated: 'Just now',
+                  updatedAt: new Date(),
+                },
+              }
+            );
+          }
+        }
       }
     } catch (e) {
       console.warn('DB alert update error:', e);
@@ -305,7 +332,17 @@ export async function updateAlertStatus(
     const alert = sc.alerts.find((a) => a.id === alertId);
     if (alert) {
       alert.status = newStatus;
-      if (newStatus === 'resolved') (alert as any).resolvedAt = new Date().toISOString();
+      if (newStatus === 'resolved') {
+        (alert as any).resolvedAt = new Date().toISOString();
+        const targetZone = sc.zones.find((z) => z.id === alert.zoneId);
+        if (targetZone) {
+          targetZone.occupancy = Math.round(targetZone.capacity * 0.72);
+          targetZone.density = parseFloat((targetZone.occupancy / (targetZone.radius * targetZone.radius * 3.14)).toFixed(1));
+          targetZone.status = 'safe';
+          targetZone.trend.shift();
+          targetZone.trend.push(targetZone.occupancy);
+        }
+      }
       sc.activeAlertsCount = sc.alerts.filter(
         (a) => a.status === 'active' || a.status === 'investigating'
       ).length;
@@ -481,10 +518,9 @@ export async function simulateTelemetryTick(scenarioId: ScenarioType): Promise<S
         for (const zone of updatedZones) {
           const ratio = (zone.occupancy / zone.capacity) * 100;
           if (ratio >= (zone.criticalThreshold || 90)) {
-            const hasActiveAlert = rawAlerts.some(
-              (a: any) => a.zoneId === zone.id && (a.status === 'active' || a.status === 'investigating')
-            );
-            if (!hasActiveAlert) {
+            // Check if there is already ANY alert for this zone (whether active, investigating, or resolved) to prevent duplicate spam
+            const hasExistingAlertForZone = rawAlerts.some((a: any) => a.zoneId === zone.id);
+            if (!hasExistingAlertForZone) {
               const newAlertId = `ALT-AUTO-${Date.now().toString().slice(-4)}`;
               const alertDoc = {
                 id: newAlertId,

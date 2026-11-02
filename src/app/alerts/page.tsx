@@ -469,7 +469,7 @@ export default function AlertsPage() {
                               alert.status === 'resolved'
                                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
                                 : alert.status === 'investigating'
-                                ? 'bg-blue-950/80 text-blue-300 border-blue-800'
+                                ? 'bg-amber-950/80 text-amber-300 border-amber-800'
                                 : 'bg-rose-950/80 text-rose-300 border-rose-800'
                             }`}
                           >
@@ -544,7 +544,7 @@ export default function AlertsPage() {
                             ) : (
                               <span className="text-emerald-400 font-mono text-[11px] font-bold flex items-center gap-1 justify-end pl-1">
                                 <span className="material-symbols-outlined text-[14px]">check_circle</span>
-                                Closed
+                                Resolved
                               </span>
                             )}
                           </div>
